@@ -45,24 +45,34 @@ function DefaultList.new(default)
 	return obj
 end
 
----@class BufferSign
----@field hl string
----@field text string
+---@alias BufferSign string[]
 
 ---@class Virtsigns
 ---@field buffers DefaultList<DefaultList<BufferSign[]>>
+---@field ignored_namespaces number[]
 local Virtsigns = {}
 
 function Virtsigns:clear()
 	self.buffers = DefaultList.new(DefaultList.new({}))
+
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 		vim.api.nvim_buf_clear_namespace(buf, namespace, 0, -1)
+	end
+
+	self.ignored_namespaces = {}
+	for name, id in pairs(vim.api.nvim_get_namespaces()) do
+		if name == "gitsigns_signs_" then
+			table.insert(self.ignored_namespaces, id)
+		end
 	end
 end
 
 ---@return Virtsigns
 function Virtsigns.new()
-	local obj = setmetatable({ buffers = nil }, Virtsigns)
+	local obj = setmetatable({
+		buffers = nil,
+		ignored_namespaces = {},
+	}, Virtsigns)
 	obj:clear()
 	return obj
 end
@@ -70,13 +80,10 @@ end
 function Virtsigns:draw()
 	for buf, rows in pairs(self.buffers) do
 		for row, signs in pairs(rows) do
-			local virt_text = {}
-			for _, sign in ipairs(signs) do
-				table.insert(virt_text, { sign.text, sign.hl })
-			end
 			vim.api.nvim_buf_set_extmark(buf, namespace, row, 0, {
-				virt_text = virt_text,
+				virt_text = signs,
 				virt_text_pos = "right_align",
+				hl_mode = "combine",
 			})
 		end
 	end
@@ -88,15 +95,20 @@ local virtsigns = Virtsigns.new()
 
 ---@param buf number
 local update_virtsigns_for_buffer = function(buf)
+	local enabled = vim.api.nvim_buf_get_var(buf, "virtsign_enabled")
+	if enabled ~= nil and not enabled then
+		return
+	end
+
 	local extmarks = vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })
 
 	for _, extmark in ipairs(extmarks) do
 		local _, row, _, details = unpack(extmark)
 
-		if details.sign_text then
+		if details.sign_text and not vim.tbl_contains(virtsigns.ignored_namespaces, details.ns_id) then
 			table.insert(virtsigns.buffers[buf][row], {
-				hl = details.sign_hl_group,
-				text = details.sign_text,
+				details.sign_text,
+				details.sign_hl_group,
 			})
 		end
 	end
@@ -104,6 +116,10 @@ end
 
 local update_virtsigns_for_all_buffers = debounce(function()
 	virtsigns:clear()
+
+	if vim.g.virtsign_enabled ~= nil and not vim.g.virtsign_enabled then
+		return
+	end
 
 	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
 		update_virtsigns_for_buffer(buf)
