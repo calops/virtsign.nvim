@@ -60,9 +60,14 @@ function Virtsigns:clear()
 	end
 
 	self.ignored_namespaces = {}
-	for name, id in pairs(vim.api.nvim_get_namespaces()) do
-		if name == "gitsigns_signs_" then
-			table.insert(self.ignored_namespaces, id)
+	local config_ignored_namespaces = (vim.g.virtsign_config or {}).ignored_namespaces
+	if config_ignored_namespaces then
+		for name, id in pairs(vim.api.nvim_get_namespaces()) do
+			for _, ns in ipairs(config_ignored_namespaces) do
+				if string.match(name, ns) then
+					table.insert(self.ignored_namespaces, id)
+				end
+			end
 		end
 	end
 end
@@ -78,8 +83,11 @@ function Virtsigns.new()
 end
 
 function Virtsigns:draw()
+	local config = vim.g.virtsign_config or {}
+	local margin = config.right_margin and string.rep(" ", config.right_margin) or ""
 	for buf, rows in pairs(self.buffers) do
 		for row, signs in pairs(rows) do
+			table.insert(signs, { margin, "VirtSignMargin" })
 			vim.api.nvim_buf_set_extmark(buf, namespace, row, 0, {
 				virt_text = signs,
 				virt_text_pos = "right_align",
@@ -95,7 +103,7 @@ local virtsigns = Virtsigns.new()
 
 ---@param buf number
 local update_virtsigns_for_buffer = function(buf)
-	local enabled = vim.api.nvim_buf_get_var(buf, "virtsign_enabled")
+	local enabled = vim.b[buf].virtsign_enabled
 	if enabled ~= nil and not enabled then
 		return
 	end
@@ -114,21 +122,40 @@ local update_virtsigns_for_buffer = function(buf)
 	end
 end
 
-local update_virtsigns_for_all_buffers = debounce(function()
+local update_virtsigns_for_all_visible_buffers = debounce(function()
 	virtsigns:clear()
 
 	if vim.g.virtsign_enabled ~= nil and not vim.g.virtsign_enabled then
 		return
 	end
 
-	for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-		update_virtsigns_for_buffer(buf)
+	for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+		update_virtsigns_for_buffer(vim.api.nvim_win_get_buf(win))
 	end
 
 	virtsigns:draw()
 end)
 
 vim.api.nvim_create_autocmd(
-	{ "CursorHold", "CursorHoldI", "CursorMoved", "CursorMovedI", "TextChanged", "DiagnosticChanged", "User" },
-	{ callback = update_virtsigns_for_all_buffers, group = augroup }
+	{ "CursorMoved", "CursorMovedI", "TextChanged", "DiagnosticChanged", "User" },
+	{ callback = update_virtsigns_for_all_visible_buffers, group = augroup }
 )
+
+vim.api.nvim_create_user_command("Virtsign", function(args)
+	local cmd = args.fargs[1]
+	if cmd == "toggle" then
+		require("virtsign").toggle()
+	elseif cmd == "toggle_buffer" then
+		require("virtsign").toggle_buffer()
+	elseif cmd == "disable" then
+		vim.g.virtsign_enabled = false
+	elseif cmd == "enable" then
+		vim.g.virtsign_enabled = true
+	end
+end, {
+	nargs = 1,
+	desc = "Enable or disable the Virtsign plugin",
+	complete = function()
+		return { "toggle", "toggle_buffer", "disable", "enable" }
+	end,
+})
