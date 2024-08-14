@@ -1,7 +1,8 @@
 local module = {}
 
 ---@class UserConfig Plugin configuration
----@field right_margin? number Margin to the right of the virtual signs
+---@field margin_right? number Margin to the right of the virtual signs
+---@field margin_left? number Margin to the left of the virtual signs
 ---@field ignored_namespaces? string[] Namespaces to ignore when displaying signs
 ---@field position? string | number Position of the virtual signs. Can be "right", "colorcolumn", or a set column number
 

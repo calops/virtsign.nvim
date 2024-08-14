@@ -1,6 +1,19 @@
 local namespace = vim.api.nvim_create_namespace("virtsign")
 local augroup = vim.api.nvim_create_augroup("virtsign", {})
 
+if vim.g.virtsign_enabled == nil then
+	vim.g.virtsign_enabled = true
+end
+
+if vim.g.virtsign_config == nil then
+	vim.g.virtsign_config = {
+		position = "right_align",
+		ignored_namespaces = { "gitsigns_.*" },
+		margin_right = 0,
+		margin_left = 1,
+	}
+end
+
 ---@generic F: fun(...)
 ---@param func F
 ---@param delay? number
@@ -60,7 +73,7 @@ function Virtsigns:clear()
 	end
 
 	self.ignored_namespaces = {}
-	local config_ignored_namespaces = (vim.g.virtsign_config or {}).ignored_namespaces
+	local config_ignored_namespaces = vim.g.virtsign_config.ignored_namespaces
 	if config_ignored_namespaces then
 		for name, id in pairs(vim.api.nvim_get_namespaces()) do
 			for _, ns in ipairs(config_ignored_namespaces) do
@@ -83,14 +96,27 @@ function Virtsigns.new()
 end
 
 function Virtsigns:draw()
-	local config = vim.g.virtsign_config or {}
-	local margin = config.right_margin and string.rep(" ", config.right_margin) or ""
+	---@type UserConfig
+	local config = vim.g.virtsign_config
+	local margin = string.rep(" ", config.margin_right)
+	local virt_text_pos = nil
+	local virt_text_win_col = nil
+
+	if config.position == "colorcolumn" then
+		virt_text_win_col = tonumber(vim.o.colorcolumn) + config.margin_left
+	elseif type(config.position) == "number" then
+		virt_text_win_col = tonumber(config.position)
+	elseif config.position == "right_align" then
+		virt_text_pos = "right_align"
+	end
+
 	for buf, rows in pairs(self.buffers) do
 		for row, signs in pairs(rows) do
-			table.insert(signs, { margin, "VirtSignMargin" })
+			table.insert(signs, { margin, "VirtsignMargin" })
 			vim.api.nvim_buf_set_extmark(buf, namespace, row, 0, {
 				virt_text = signs,
-				virt_text_pos = "right_align",
+				virt_text_pos = virt_text_pos,
+				virt_text_win_col = virt_text_win_col,
 				hl_mode = "combine",
 			})
 		end
@@ -125,7 +151,7 @@ end
 local update_virtsigns_for_all_visible_buffers = debounce(function()
 	virtsigns:clear()
 
-	if vim.g.virtsign_enabled ~= nil and not vim.g.virtsign_enabled then
+	if not vim.g.virtsign_enabled then
 		return
 	end
 
@@ -137,7 +163,7 @@ local update_virtsigns_for_all_visible_buffers = debounce(function()
 end)
 
 vim.api.nvim_create_autocmd(
-	{ "CursorMoved", "CursorMovedI", "TextChanged", "DiagnosticChanged", "User" },
+	{ "CursorMoved", "CursorMovedI", "TextChanged", "DiagnosticChanged", "CmdlineEnter", "CmdlineLeave", "User" },
 	{ callback = update_virtsigns_for_all_visible_buffers, group = augroup }
 )
 
@@ -159,3 +185,5 @@ end, {
 		return { "toggle", "toggle_buffer", "disable", "enable" }
 	end,
 })
+
+vim.api.nvim_set_hl(0, "VirtsignMargin", { link = "Normal" })
